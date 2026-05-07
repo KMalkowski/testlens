@@ -104,6 +104,17 @@ Aim for strong coverage on:
 
 Gaps are acceptable for thin CLI wiring if the underlying behavior is tested.
 
+## TypeScript Strictness
+
+Run `pnpm typecheck` after every code change. Do not move on until it passes with zero errors.
+
+- Using `any` is not acceptable. Every value must have a concrete type.
+- Do not use `as any`, `// @ts-ignore`, `// @ts-expect-error`, or `eslint-disable` to silence type
+  errors. Fix the underlying issue instead.
+- If a third-party library lacks types, add a minimal `.d.ts` declaration rather than resorting to `any`.
+- Fixture files under `tests/fixtures/` are excluded from type checking because they are raw
+  source text consumed by the parser, not compiled code.
+
 ## Required Verification
 
 Before finishing a coding task, run:

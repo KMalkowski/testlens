@@ -1,7 +1,7 @@
 import { parse } from "@babel/parser";
 import traverseModule from "@babel/traverse";
 import type { CallExpression, Comment, Node, StringLiteral } from "@babel/types";
-import type { ParsedTestCase, TestTag } from "./types.js";
+import type { ParsedTestCase, TestSignals, TestTag } from "./types.js";
 
 const supportedTags = new Set<TestTag>(["critical", "edge-case", "regression", "happy-path"]);
 const traverse = "default" in traverseModule ? traverseModule.default : traverseModule;
@@ -39,6 +39,7 @@ export function parseTestFile(filePath: string, source: string): ParsedTestCase[
         domain,
         tags,
         line: node.loc?.start.line,
+        signals: defaultSignals(),
       });
     },
   });
@@ -83,6 +84,18 @@ function isAdjacentLeadingComment(comment: Comment, node: Node, source: string):
   }
 
   return source.slice(commentEnd, nodeStart).trim() === "";
+}
+
+function defaultSignals(): TestSignals {
+  return {
+    usesAccessibleQueries: false,
+    usesTestIdQueries: false,
+    hasVisibleOutputAssertion: false,
+    onlyToBeInTheDocument: false,
+    mockCount: 0,
+    hasVagueName: false,
+    hasTimeouts: false,
+  };
 }
 
 function parseTags(text: string): Pick<ParsedTestCase, "domain" | "tags"> {

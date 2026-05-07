@@ -16,6 +16,7 @@ describe("parseTestFile", () => {
         domain: "checkout",
         tags: ["critical"],
         line: 3,
+        signals: expect.objectContaining({}),
       },
       {
         name: "renders checkout component",
@@ -23,6 +24,7 @@ describe("parseTestFile", () => {
         domain: undefined,
         tags: [],
         line: 5,
+        signals: expect.objectContaining({}),
       },
     ]);
   });
