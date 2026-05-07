@@ -16,12 +16,12 @@
 
 ## Phase 2 — HTML report
 
-- [ ] Static HTML generator (single self-contained file)
-- [ ] Domain sections with grade badges (colour-coded)
-- [ ] Per-test rows sorted by grade (worst first)
-- [ ] Syntax-highlighted test body expansion (shiki)
-- [ ] Unclassified section for untagged tests
-- [ ] Tagging skill link in report
+- [x] Static HTML generator (single self-contained file)
+- [x] Domain sections with grade badges (colour-coded)
+- [x] Per-test rows sorted by grade (worst first)
+- [x] Syntax-highlighted test body expansion (shiki)
+- [x] Unclassified section for untagged tests
+- [x] Tagging skill link in report
 
 ## Phase 3 — Flakiness + CI
 
