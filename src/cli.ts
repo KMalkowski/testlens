@@ -33,6 +33,8 @@ export async function run(argv = process.argv): Promise<void> {
           domain: options.domain,
           all: options.all,
           base: options.base,
+          ci: options.ci,
+          report: options.report,
         },
         cwd,
       );

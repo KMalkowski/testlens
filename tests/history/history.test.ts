@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { HistoryRun, TestlensHistory } from "../../src/history/history.js";
 import {
   appendRunFromJunit,
   emptyHistory,
@@ -8,7 +9,6 @@ import {
   loadHistory,
   saveHistory,
 } from "../../src/history/history.js";
-import type { HistoryRun, TestlensHistory } from "../../src/history/history.js";
 import type { JunitTestResult } from "../../src/junit/parseJunit.js";
 
 /**
@@ -215,9 +215,7 @@ describe("loadHistory / saveHistory", () => {
     const path = join(dir, "history.json");
     const history: TestlensHistory = {
       version: 1,
-      runs: [
-        run("build-1", "2026-05-01T00:00:00Z", [{ name: "test", status: "passed" }]),
-      ],
+      runs: [run("build-1", "2026-05-01T00:00:00Z", [{ name: "test", status: "passed" }])],
     };
 
     saveHistory(path, history);

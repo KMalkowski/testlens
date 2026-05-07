@@ -109,9 +109,7 @@ export function generateSkill(input: SkillInput): string {
   lines.push("## Instructions");
   lines.push("");
   lines.push("Paste the test file you want to tag along with this prompt.");
-  lines.push(
-    "Add tag comments above each `describe` and `it` block. Do not change any test code.",
-  );
+  lines.push("Add tag comments above each `describe` and `it` block. Do not change any test code.");
   lines.push(
     "If a test's domain is uncertain or ambiguous, attach a short confidence note explaining why.",
   );
@@ -125,9 +123,7 @@ export function generateSkill(input: SkillInput): string {
   lines.push("2. A short list of any tests you marked uncertain, with reasoning.");
   lines.push("");
 
-  lines.push(
-    `${TAXONOMY_MARKER_PREFIX} ${taxonomyFingerprint(domains)} ${TAXONOMY_MARKER_SUFFIX}`,
-  );
+  lines.push(`${TAXONOMY_MARKER_PREFIX} ${taxonomyFingerprint(domains)} ${TAXONOMY_MARKER_SUFFIX}`);
 
   return lines.join("\n");
 }
@@ -147,9 +143,7 @@ export function shouldRegenerateSkill(
   );
   if (endIdx === -1) return true;
 
-  const marker = existingContent
-    .slice(startIdx + TAXONOMY_MARKER_PREFIX.length, endIdx)
-    .trim();
+  const marker = existingContent.slice(startIdx + TAXONOMY_MARKER_PREFIX.length, endIdx).trim();
   const current = taxonomyFingerprint(domains);
 
   return marker !== current;

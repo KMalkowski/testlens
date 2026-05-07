@@ -1,5 +1,5 @@
-import { computeFlakinessScore, failureRate } from "../../src/flakiness/score.js";
 import type { FlakinessSignals, RunOutcome } from "../../src/flakiness/score.js";
+import { computeFlakinessScore, failureRate } from "../../src/flakiness/score.js";
 
 /**
  * Flakiness scoring tests.
@@ -269,8 +269,14 @@ describe("computeFlakinessScore — @critical doubles penalties", () => {
       isCritical: true,
     });
 
-    // Doubled -4 → -8 means critical loses 4 more points than normal
-    expect(normal - critical).toBe(4);
+    // Normal: clean static signals (+6) -4 (failure rate over threshold) = 2.
+    // Critical doubles the -4 to -8 → -2, clamped to 0.
+    // The visible differential is bounded by the clamp; we assert it is at
+    // least the baseline penalty-difference and that critical lands at the
+    // floor.
+    expect(normal).toBe(2);
+    expect(critical).toBe(0);
+    expect(normal - critical).toBeGreaterThanOrEqual(2);
   });
 
   it("doubles the timeout penalty for critical tests", () => {

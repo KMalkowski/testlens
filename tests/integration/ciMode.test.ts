@@ -208,11 +208,7 @@ describe("runPipeline — --ci mode", () => {
       ],
     }));
 
-    writeFile(
-      repoDir,
-      "testlens-history.json",
-      JSON.stringify({ version: 1, runs: seededRuns }),
-    );
+    writeFile(repoDir, "testlens-history.json", JSON.stringify({ version: 1, runs: seededRuns }));
 
     const result = await runPipeline(config, { ci: true }, repoDir);
 

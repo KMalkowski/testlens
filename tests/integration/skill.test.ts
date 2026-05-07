@@ -215,13 +215,17 @@ describe("generateSkill", () => {
         domain: "checkout",
       });
       const bodies = new Map([
-        [bodyKey(aTest.filePath, aTest.name), `// @domain:checkout\nit("a-grade example", () => {});`],
-        [bodyKey(dTest.filePath, dTest.name), `// @domain:checkout\nit("d-grade example", () => {});`],
+        [
+          bodyKey(aTest.filePath, aTest.name),
+          `// @domain:checkout\nit("a-grade example", () => {});`,
+        ],
+        [
+          bodyKey(dTest.filePath, dTest.name),
+          `// @domain:checkout\nit("d-grade example", () => {});`,
+        ],
       ]);
 
-      const md = generateSkill(
-        makeInput({ gradedTests: [dTest, aTest], testBodies: bodies }),
-      );
+      const md = generateSkill(makeInput({ gradedTests: [dTest, aTest], testBodies: bodies }));
 
       expect(md).toContain("a-grade example");
       // The D-grade test is a poor example and should not be shown when an A exists
@@ -246,7 +250,10 @@ describe("generateSkill", () => {
         usefulnessScore: 10,
       });
       const bodies = new Map([
-        [bodyKey(tagged.filePath, tagged.name), `// @domain:checkout\nit("tagged exemplar", () => {});`],
+        [
+          bodyKey(tagged.filePath, tagged.name),
+          `// @domain:checkout\nit("tagged exemplar", () => {});`,
+        ],
         [bodyKey(untagged.filePath, untagged.name), `it("untagged candidate", () => {});`],
       ]);
 
@@ -272,7 +279,10 @@ describe("generateSkill", () => {
         usefulnessScore: 10,
       });
       const bodies = new Map([
-        [bodyKey(withBody.filePath, withBody.name), `// @domain:checkout\nit("has a body", () => {});`],
+        [
+          bodyKey(withBody.filePath, withBody.name),
+          `// @domain:checkout\nit("has a body", () => {});`,
+        ],
       ]);
 
       const md = generateSkill(
@@ -299,9 +309,7 @@ describe("generateSkill", () => {
         isCapped: true,
         tags: [],
       });
-      const md = generateSkill(
-        makeInput({ gradedTests: [onlyUntagged], testBodies: new Map() }),
-      );
+      const md = generateSkill(makeInput({ gradedTests: [onlyUntagged], testBodies: new Map() }));
 
       expect(md.length).toBeGreaterThan(0);
       expect(md).toMatch(/testlens/i);

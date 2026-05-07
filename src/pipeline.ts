@@ -1,10 +1,16 @@
-import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { execaSync } from "execa";
 import fg from "fast-glob";
+import { buildAnnotations, buildReport, postCodeInsights } from "./bitbucket/codeInsights.js";
 import type { Grade, TestLensConfig } from "./config/types.js";
+import { computeFlakinessScore, type FlakinessSignals } from "./flakiness/score.js";
 import { getAffectedFiles } from "./git/diff.js";
 import { calculateGrade } from "./grading/grades.js";
 import { computeUsefulnessScore } from "./grading/usefulness.js";
+import { appendRunFromJunit, getRunsForTest, loadHistory, saveHistory } from "./history/history.js";
+import { parseJunitFile } from "./junit/parseJunit.js";
+import { generateHtmlReport } from "./output/htmlReport.js";
 import {
   type DomainResult,
   formatDeltaView,
@@ -12,11 +18,14 @@ import {
   type GradedTest,
 } from "./output/terminal.js";
 import { parseTestFile } from "./parser/parseTestFile.js";
+import type { ParsedTestCase } from "./parser/types.js";
 
 export interface PipelineOptions {
   domain?: string;
   all?: boolean;
   base?: string;
+  ci?: boolean;
+  report?: boolean;
 }
 
 export interface PipelineResult {
@@ -26,6 +35,8 @@ export interface PipelineResult {
 }
 
 const DEFAULT_FLAKINESS_SCORE = 5;
+const HISTORY_FILE = "testlens-history.json";
+const REPORT_FILE = "testlens-report.html";
 
 export async function runPipeline(
   config: TestLensConfig,
@@ -45,36 +56,40 @@ export async function runPipeline(
   });
 
   // 3. Score and grade every parsed test
-  const allGraded: GradedTest[] = allTests.map((t) => {
-    const usefulnessScore = computeUsefulnessScore(t);
-    const flakinessScore = DEFAULT_FLAKINESS_SCORE;
-    const isCapped = !t.domain;
-    const cap: Grade | undefined = isCapped ? config.grading.untaggedCap : undefined;
-    const grade = calculateGrade(usefulnessScore, flakinessScore, cap);
-
-    return {
-      name: t.name,
-      filePath: t.filePath,
-      grade,
-      usefulnessScore,
-      flakinessScore,
-      domain: t.domain,
-      tags: [...t.tags],
-      isCapped,
-    };
-  });
+  const flakinessContext = options.ci ? await loadCiFlakinessContext(config, cwd) : undefined;
+  const allGraded: GradedTest[] = allTests.map((t) => gradeTest(t, config, flakinessContext));
 
   // 4. Determine which graded tests are in scope based on the mode
-  if (options.domain) {
-    return buildDomainResult(options.domain, allGraded);
+  let result: PipelineResult;
+
+  if (options.ci) {
+    result = buildCiResult(allGraded, config);
+    if (flakinessContext?.noHistory) {
+      result.output = `${result.output}\n\n  [no history] flakiness scoring will activate after ${config.grading.flakinessSampleSize} CI runs.`;
+    }
+  } else if (options.domain) {
+    result = buildDomainResult(options.domain, allGraded);
+  } else if (options.all) {
+    result = buildAllResult(allGraded, config);
+  } else {
+    result = await buildDiffResult(allGraded, baseBranch, cwd, config);
   }
 
-  if (options.all) {
-    return buildAllResult(allGraded, config);
+  // 5. Side effects: report, history, Bitbucket
+  if (options.ci || options.report) {
+    await writeReport(result, config, cwd, baseBranch);
   }
 
-  return buildDiffResult(allGraded, baseBranch, cwd, config);
+  if (options.ci) {
+    await postBitbucketAnnotation(result, config, cwd, baseBranch);
+  }
+
+  return result;
 }
+
+// ---------------------------------------------------------------------------
+// Mode builders
+// ---------------------------------------------------------------------------
 
 function buildDomainResult(domainId: string, allGraded: GradedTest[]): PipelineResult {
   const domainTests = allGraded.filter((t) => t.domain === domainId);
@@ -114,6 +129,10 @@ function buildAllResult(allGraded: GradedTest[], config: TestLensConfig): Pipeli
   return { output, gradedTests: allGraded, domainResults };
 }
 
+function buildCiResult(allGraded: GradedTest[], config: TestLensConfig): PipelineResult {
+  return buildAllResult(allGraded, config);
+}
+
 async function buildDiffResult(
   allGraded: GradedTest[],
   baseBranch: string,
@@ -141,6 +160,186 @@ async function buildDiffResult(
   const output = formatDeltaView(domainResults);
   return { output, gradedTests: diffGraded, domainResults };
 }
+
+// ---------------------------------------------------------------------------
+// Grading
+// ---------------------------------------------------------------------------
+
+interface CiFlakinessContext {
+  noHistory: boolean;
+  threshold: number;
+  outcomesFor: (testName: string) => Array<{
+    runId: string;
+    timestamp: string;
+    status: "passed" | "failed";
+  }>;
+}
+
+async function loadCiFlakinessContext(
+  config: TestLensConfig,
+  cwd: string,
+): Promise<CiFlakinessContext> {
+  const historyPath = join(cwd, HISTORY_FILE);
+  let history = loadHistory(historyPath);
+
+  // If a JUnit XML file exists, append it as the current run before scoring.
+  const junitPath = resolve(cwd, config.junitOutput);
+  if (existsSync(junitPath)) {
+    try {
+      const junitResults = await parseJunitFile(junitPath);
+      history = appendRunFromJunit(history, {
+        runId: detectRunId(),
+        timestamp: new Date().toISOString(),
+        junitResults,
+        sampleSize: config.grading.flakinessSampleSize,
+      });
+      saveHistory(historyPath, history);
+    } catch {
+      // Malformed JUnit XML should not crash the pipeline; treat as no data.
+    }
+  }
+
+  const noHistory = history.runs.length < config.grading.flakinessSampleSize;
+
+  return {
+    noHistory,
+    threshold: config.grading.flakinessThreshold,
+    outcomesFor: (testName: string) => {
+      const runs = getRunsForTest(history, testName);
+      // Skipped runs are not informative for flakiness — drop them.
+      return runs
+        .filter((r) => r.status !== "skipped")
+        .map((r) => ({
+          runId: r.runId,
+          timestamp: r.timestamp,
+          status: r.status as "passed" | "failed",
+        }));
+    },
+  };
+}
+
+function gradeTest(
+  test: ParsedTestCase,
+  config: TestLensConfig,
+  flakinessContext: CiFlakinessContext | undefined,
+): GradedTest {
+  const usefulnessScore = computeUsefulnessScore(test);
+  const flakinessScore = flakinessContext
+    ? computeCiFlakiness(test, flakinessContext)
+    : DEFAULT_FLAKINESS_SCORE;
+
+  const isCapped = !test.domain;
+  const cap: Grade | undefined = isCapped ? config.grading.untaggedCap : undefined;
+  const grade = calculateGrade(usefulnessScore, flakinessScore, cap);
+
+  return {
+    name: test.name,
+    filePath: test.filePath,
+    grade,
+    usefulnessScore,
+    flakinessScore,
+    domain: test.domain,
+    tags: [...test.tags],
+    isCapped,
+  };
+}
+
+function computeCiFlakiness(test: ParsedTestCase, ctx: CiFlakinessContext): number {
+  const signals: FlakinessSignals = {
+    hasTimeouts: test.signals.hasTimeouts,
+    hasUnmockedNetwork: false,
+    hasSharedState: false,
+  };
+
+  return computeFlakinessScore({
+    signals,
+    history: ctx.outcomesFor(test.name),
+    threshold: ctx.threshold,
+    isCritical: test.tags.includes("critical"),
+  });
+}
+
+function detectRunId(): string {
+  return (
+    process.env.BITBUCKET_BUILD_NUMBER ??
+    process.env.GITHUB_RUN_ID ??
+    process.env.CI_PIPELINE_ID ??
+    `local-${Date.now()}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Side effects
+// ---------------------------------------------------------------------------
+
+async function writeReport(
+  result: PipelineResult,
+  config: TestLensConfig,
+  cwd: string,
+  baseBranch: string,
+): Promise<void> {
+  const branch = currentBranch(cwd) ?? baseBranch;
+  const html = await generateHtmlReport({
+    branch,
+    baseBranch,
+    domains: config.domains,
+    gradedTests: result.gradedTests,
+    testBodies: new Map(),
+  });
+  writeFileSync(join(cwd, REPORT_FILE), html);
+}
+
+async function postBitbucketAnnotation(
+  result: PipelineResult,
+  config: TestLensConfig,
+  cwd: string,
+  baseBranch: string,
+): Promise<void> {
+  if (!config.bitbucket.enabled) return;
+
+  const branch = currentBranch(cwd) ?? baseBranch;
+  const commitSha = currentCommit(cwd);
+  if (!commitSha) return;
+
+  const report = buildReport({
+    domainResults: result.domainResults,
+    gradedTests: result.gradedTests,
+    branch,
+    reportLink: undefined,
+  });
+  const annotations = buildAnnotations(result.gradedTests);
+
+  const token = process.env.BITBUCKET_TOKEN;
+  await postCodeInsights({
+    config: config.bitbucket,
+    commitSha,
+    report,
+    annotations,
+    auth: token ? { token } : undefined,
+  });
+}
+
+function currentBranch(cwd: string): string | undefined {
+  try {
+    const { stdout } = execaSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd });
+    return stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function currentCommit(cwd: string): string | undefined {
+  try {
+    const { stdout } = execaSync("git", ["rev-parse", "HEAD"], { cwd });
+    return stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function groupByDomain(tests: GradedTest[]): Map<string, GradedTest[]> {
   const map = new Map<string, GradedTest[]>();
