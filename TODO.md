@@ -26,12 +26,22 @@
 ## Phase 3 — Flakiness + CI
 
 - [ ] JUnit XML parser (jest + playwright)
+  - [x] Tests written (`tests/junit/parseJunit.test.ts`)
+  - [ ] Implementation (`src/junit/parseJunit.ts`)
 - [ ] Flakiness scoring (0-10) from CI history
+  - [x] Tests written (`tests/flakiness/score.test.ts`)
+  - [ ] Implementation (`src/flakiness/score.ts`)
 - [ ] `testlens-history.json` generation and aggregation
+  - [x] Tests written (`tests/history/history.test.ts`)
+  - [ ] Implementation (`src/history/history.ts`)
 - [ ] `--ci` mode (--all + --report + Bitbucket annotation)
+  - [x] Integration tests written (`tests/integration/ciMode.test.ts`)
+  - [ ] Pipeline wiring for `ci: true` (report output, history append, no-history indicator)
 - [ ] Bitbucket Code Insights annotation (optional, config-gated)
+  - [x] Tests written (`tests/bitbucket/codeInsights.test.ts`)
+  - [ ] Implementation (`src/bitbucket/codeInsights.ts`)
 
 ## Phase 4 — Skill generation
 
-- [ ] `TESTLENS_SKILL.md` auto-generation from config + top-graded examples
-- [ ] Regeneration when taxonomy changes
+- [x] `TESTLENS_SKILL.md` auto-generation from config + top-graded examples
+- [x] Regeneration when taxonomy changes (`shouldRegenerateSkill` taxonomy fingerprint)
