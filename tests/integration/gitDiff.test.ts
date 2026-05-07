@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execaSync } from "execa";
 import type { DomainConfig } from "../../src/config/types.js";
 import { getAffectedFiles, mapFilesToDomains } from "../../src/git/diff.js";
@@ -22,6 +22,7 @@ function createTempRepo(): string {
 }
 
 function addFileAndCommit(dir: string, filePath: string, content: string, message: string): void {
+  mkdirSync(dirname(join(dir, filePath)), { recursive: true });
   writeFileSync(join(dir, filePath), content);
   execaSync("git", ["add", filePath], { cwd: dir });
   execaSync("git", ["commit", "-m", message], { cwd: dir });

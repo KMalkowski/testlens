@@ -6,6 +6,14 @@ import type { ParsedTestCase, TestSignals, TestTag } from "./types.js";
 const supportedTags = new Set<TestTag>(["critical", "edge-case", "regression", "happy-path"]);
 const traverse = "default" in traverseModule ? traverseModule.default : traverseModule;
 
+const accessibleQueryPattern =
+  /\b(getBy|findBy|queryBy|getAllBy|findAllBy|queryAllBy)(Role|Text|LabelText|PlaceholderText|AltText|DisplayValue)\b/;
+const testIdQueryPattern = /\b(getBy|findBy|queryBy|getAllBy|findAllBy|queryAllBy)TestId\b/;
+const visibleOutputPattern =
+  /\.(toBeVisible|toBeDisabled|toBeEnabled|toBeChecked|toHaveTextContent|toHaveValue|toHaveAttribute)\b/;
+const vagueNames = new Set(["renders", "works", "test"]);
+const timeoutPattern = /\bsetTimeout\b/;
+
 export function parseTestFile(filePath: string, source: string): ParsedTestCase[] {
   const ast = parse(source, {
     sourceType: "unambiguous",
@@ -15,10 +23,16 @@ export function parseTestFile(filePath: string, source: string): ParsedTestCase[
 
   const fileComments = ast.comments ?? [];
   const tests: ParsedTestCase[] = [];
+  let fileMockCount = 0;
 
   traverse(ast, {
     CallExpression(path) {
       const node = path.node;
+
+      if (isMockCall(node)) {
+        fileMockCount++;
+        return;
+      }
 
       if (!isTestCall(node)) {
         return;
@@ -33,16 +47,26 @@ export function parseTestFile(filePath: string, source: string): ParsedTestCase[
       const comments = collectNearbyComments(node, nameNode, source, fileComments);
       const { domain, tags } = parseTags(comments.join("\n"));
 
+      const callbackNode = node.arguments[1];
+      const bodySource =
+        callbackNode?.start != null && callbackNode?.end != null
+          ? source.slice(callbackNode.start, callbackNode.end)
+          : "";
+
       tests.push({
         name: nameNode.value,
         filePath,
         domain,
         tags,
         line: node.loc?.start.line,
-        signals: defaultSignals(),
+        signals: detectSignals(nameNode.value, bodySource),
       });
     },
   });
+
+  for (const test of tests) {
+    test.signals.mockCount = fileMockCount;
+  }
 
   return tests;
 }
@@ -86,15 +110,31 @@ function isAdjacentLeadingComment(comment: Comment, node: Node, source: string):
   return source.slice(commentEnd, nodeStart).trim() === "";
 }
 
-function defaultSignals(): TestSignals {
+function isMockCall(node: CallExpression): boolean {
+  const callee = node.callee;
+  return (
+    callee.type === "MemberExpression" &&
+    callee.object.type === "Identifier" &&
+    callee.property.type === "Identifier" &&
+    callee.property.name === "mock" &&
+    (callee.object.name === "vi" || callee.object.name === "jest")
+  );
+}
+
+function detectSignals(testName: string, bodySource: string): TestSignals {
+  const assertionMatches = bodySource.match(/\.to\w+\(/g);
+  const hasAssertions = assertionMatches != null && assertionMatches.length > 0;
+  const allAreToBeInTheDocument =
+    hasAssertions && assertionMatches.every((m) => m === ".toBeInTheDocument(");
+
   return {
-    usesAccessibleQueries: false,
-    usesTestIdQueries: false,
-    hasVisibleOutputAssertion: false,
-    onlyToBeInTheDocument: false,
+    usesAccessibleQueries: accessibleQueryPattern.test(bodySource),
+    usesTestIdQueries: testIdQueryPattern.test(bodySource),
+    hasVisibleOutputAssertion: visibleOutputPattern.test(bodySource),
+    onlyToBeInTheDocument: allAreToBeInTheDocument,
     mockCount: 0,
-    hasVagueName: false,
-    hasTimeouts: false,
+    hasVagueName: vagueNames.has(testName.trim().toLowerCase()),
+    hasTimeouts: timeoutPattern.test(bodySource),
   };
 }
 
