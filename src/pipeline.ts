@@ -19,6 +19,7 @@ import {
 } from "./output/terminal.js";
 import { parseTestFile } from "./parser/parseTestFile.js";
 import type { ParsedTestCase } from "./parser/types.js";
+import { generateSkill, shouldRegenerateSkill } from "./skill/generateSkill.js";
 
 export interface PipelineOptions {
   domain?: string;
@@ -26,6 +27,7 @@ export interface PipelineOptions {
   base?: string;
   ci?: boolean;
   report?: boolean;
+  skill?: boolean;
 }
 
 export interface PipelineResult {
@@ -37,6 +39,12 @@ export interface PipelineResult {
 const DEFAULT_FLAKINESS_SCORE = 5;
 const HISTORY_FILE = "testlens-history.json";
 const REPORT_FILE = "testlens-report.html";
+const SKILL_FILE = "TESTLENS_SKILL.md";
+const TEST_BODY_LINES = 20;
+
+function bodyKey(filePath: string, name: string): string {
+  return `${filePath}::${name}`;
+}
 
 export async function runPipeline(
   config: TestLensConfig,
@@ -49,10 +57,20 @@ export async function runPipeline(
   const absolutePaths = await fg(config.testMatch, { cwd, absolute: true });
   const testFiles = absolutePaths.map((abs) => relative(cwd, abs));
 
-  // 2. Parse all test files
+  // 2. Parse all test files and capture each test's source body for downstream
+  //    consumers (HTML report expandable code blocks, skill examples).
+  const testBodies = new Map<string, string>();
   const allTests = testFiles.flatMap((filePath) => {
     const source = readFileSync(`${cwd}/${filePath}`, "utf-8");
-    return parseTestFile(filePath, source);
+    const parsed = parseTestFile(filePath, source);
+    const sourceLines = source.split("\n");
+    for (const tc of parsed) {
+      if (tc.line == null) continue;
+      const startIdx = tc.line - 1;
+      const snippet = sourceLines.slice(startIdx, startIdx + TEST_BODY_LINES).join("\n");
+      testBodies.set(bodyKey(tc.filePath, tc.name), snippet);
+    }
+    return parsed;
   });
 
   // 3. Score and grade every parsed test
@@ -75,13 +93,19 @@ export async function runPipeline(
     result = await buildDiffResult(allGraded, baseBranch, cwd, config);
   }
 
-  // 5. Side effects: report, history, Bitbucket
+  // 5. Side effects: report, history, Bitbucket, skill
   if (options.ci || options.report) {
-    await writeReport(result, config, cwd, baseBranch);
+    await writeReport(result, config, cwd, baseBranch, testBodies);
   }
 
   if (options.ci) {
     await postBitbucketAnnotation(result, config, cwd, baseBranch);
+  }
+
+  if (options.skill) {
+    // Use the full graded set so the skill always sees the best examples
+    // available in the suite, not just the diff-scoped subset.
+    writeSkillFile(cwd, config, allGraded, testBodies);
   }
 
   return result;
@@ -277,6 +301,7 @@ async function writeReport(
   config: TestLensConfig,
   cwd: string,
   baseBranch: string,
+  testBodies: Map<string, string>,
 ): Promise<void> {
   const branch = currentBranch(cwd) ?? baseBranch;
   const html = await generateHtmlReport({
@@ -284,9 +309,33 @@ async function writeReport(
     baseBranch,
     domains: config.domains,
     gradedTests: result.gradedTests,
-    testBodies: new Map(),
+    testBodies,
   });
   writeFileSync(join(cwd, REPORT_FILE), html);
+}
+
+export function writeSkillFile(
+  cwd: string,
+  config: TestLensConfig,
+  gradedTests: GradedTest[],
+  testBodies: Map<string, string>,
+): { written: boolean; path: string } {
+  const path = join(cwd, SKILL_FILE);
+  const existing = existsSync(path) ? readFileSync(path, "utf-8") : undefined;
+
+  if (!shouldRegenerateSkill(existing, config.domains)) {
+    console.log(`${SKILL_FILE} is up to date.`);
+    return { written: false, path };
+  }
+
+  const content = generateSkill({
+    domains: config.domains,
+    gradedTests,
+    testBodies,
+  });
+  writeFileSync(path, content);
+  console.log(`wrote ${path}`);
+  return { written: true, path };
 }
 
 async function postBitbucketAnnotation(

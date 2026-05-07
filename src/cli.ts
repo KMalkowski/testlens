@@ -19,6 +19,7 @@ export async function run(argv = process.argv): Promise<void> {
     .option("--all", "grade the full test suite")
     .option("--ci", "run CI mode")
     .option("--base <branch>", "override the configured base branch")
+    .option("--skill", "generate TESTLENS_SKILL.md")
     .action(async (options) => {
       const cwd = process.cwd();
       const config = await loadConfig(cwd);
@@ -35,6 +36,7 @@ export async function run(argv = process.argv): Promise<void> {
           base: options.base,
           ci: options.ci,
           report: options.report,
+          skill: options.skill,
         },
         cwd,
       );
