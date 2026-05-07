@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { loadConfig } from "./config/loadConfig.js";
+import { runPipeline } from "./pipeline.js";
 
 const version = "0.1.0";
 
@@ -19,24 +20,24 @@ export async function run(argv = process.argv): Promise<void> {
     .option("--ci", "run CI mode")
     .option("--base <branch>", "override the configured base branch")
     .action(async (options) => {
-      const config = await loadConfig(process.cwd());
+      const cwd = process.cwd();
+      const config = await loadConfig(cwd);
       const baseBranch = options.base ?? config.baseBranch;
 
       console.log(`${pc.bold("testlens")}  v${version}  base: ${baseBranch}`);
       console.log("");
-      console.log(
-        pc.dim(
-          "Scaffold is ready. Analysis implementation starts from src/parser and src/grading.",
-        ),
+
+      const result = await runPipeline(
+        config,
+        {
+          domain: options.domain,
+          all: options.all,
+          base: options.base,
+        },
+        cwd,
       );
 
-      if (options.domain) {
-        console.log(`domain: ${options.domain}`);
-      }
-
-      if (options.report) {
-        console.log("report: testlens-report.html");
-      }
+      console.log(result.output);
     });
 
   await program.parseAsync(argv);
