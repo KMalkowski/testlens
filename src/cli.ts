@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { loadConfig } from "./config/loadConfig.js";
+import { runInit } from "./init/runInit.js";
 import { runPipeline } from "./pipeline.js";
 
 const version = "0.1.0";
@@ -20,8 +21,17 @@ export async function run(argv = process.argv): Promise<void> {
     .option("--ci", "run CI mode")
     .option("--base <branch>", "override the configured base branch")
     .option("--skill", "generate TESTLENS_SKILL.md")
+    .option("--init", "scaffold testlens.config.js + TESTLENS_INIT.md prompt")
     .action(async (options) => {
       const cwd = process.cwd();
+
+      if (options.init) {
+        console.log(`${pc.bold("testlens")}  v${version}  init`);
+        console.log("");
+        runInit(cwd);
+        return;
+      }
+
       const config = await loadConfig(cwd);
       const baseBranch = options.base ?? config.baseBranch;
 
